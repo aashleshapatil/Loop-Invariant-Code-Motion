@@ -60,7 +60,7 @@ int find_use_in_loop(Loop,I)
    }
    return 1;
 }
-LLVMValueRef load_sink(LLVMValueRef I,LLVMLoopRef L)
+LLVMValueRef sink(LLVMValueRef I,LLVMLoopRef L)
 {
   worklist_t wlist_exit;
   wlist_exit= LLVMGetExitBlocks(L);
@@ -183,7 +183,7 @@ void LICM(LLVMValueRef funs)
 					   if(find_use_in_loop(Loop,I))
 					   {
 						LICM_LoadSink++;
-						I=load_sink(I,Loop);
+						I=sink(I,Loop);
 					   
 					   continue;
 					   }
@@ -208,7 +208,7 @@ void LICM(LLVMValueRef funs)
 						addr = LLVMGetOperand(I,1);
 						if(canMoveOutOfLoop_store(Loop,I,addr))
 						{
-							I=load_sink(I,Loop);
+							I=sink(I,Loop);
 							LICM_StoreSink++;
 							continue;
 						}
