@@ -75,6 +75,7 @@ LLVMValueRef sink(LLVMValueRef I,LLVMLoopRef L)
           if(LLVMLoopContainsBasicBlock(L, iter))
           {
 			  last=LLVMGetBasicBlockTerminator(iter);
+			  /*check if conditional or non conditional branch*/
 			  if(!LLVMValueIsBasicBlock(LLVMGetOperand(last,0)))
 			  {
 					last=LLVMGetBasicBlockTerminator(iter);
@@ -83,6 +84,7 @@ LLVMValueRef sink(LLVMValueRef I,LLVMLoopRef L)
 					false_block =LLVMValueAsBasicBlock(LLVMGetOperand(last,2));
 					new_bb=LLVMAppendBasicBlock	(	LLVMGetBasicBlockParent(iter),"new_block");
 					LLVMPositionBuilderBefore(Builder,last);
+					/*if branches to the block when condition is true*/
 					if(true_block==bb)
 					{
 						 LLVMValueRef br= LLVMBuildCondBr(Builder,cond,new_bb,false_block);
@@ -182,6 +184,7 @@ void LICM(LLVMValueRef funs)
 					{
 					   if(find_use_in_loop(Loop,I))
 					   {
+						   /*if no use then sink!*/
 						LICM_LoadSink++;
 						I=sink(I,Loop);
 					   
@@ -189,7 +192,7 @@ void LICM(LLVMValueRef funs)
 					   }
 					}
 					
-					if(canMoveOutOfLoop(Loop,I,addr))
+					if(canMoveOutOfLoop_hoist(Loop,I,addr))
 					{
 						clone = LLVMCloneInstruction(I);
 						last=LLVMGetLastInstruction(PH);
@@ -203,16 +206,16 @@ void LICM(LLVMValueRef funs)
 						continue;
 					}
 				}
-				  else if(LLVMIsAStoreInst(I))
-				  {
-						addr = LLVMGetOperand(I,1);
-						if(canMoveOutOfLoop_store(Loop,I,addr))
-						{
-							I=sink(I,Loop);
-							LICM_StoreSink++;
-							continue;
-						}
-				  }
+				else if(LLVMIsAStoreInst(I))
+				{
+					addr = LLVMGetOperand(I,1);
+					if(canMoveOutOfLoop_store(Loop,I,addr))
+					{
+						I=sink(I,Loop);
+						LICM_StoreSink++;
+						continue;
+					}
+				}
 				I=LLVMGetNextInstruction(I);
 			}     
        }
@@ -220,7 +223,7 @@ void LICM(LLVMValueRef funs)
   return;
 }
 
-int canMoveOutOfLoop(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
+int canMoveOutOfLoop_hoist(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
 {
     worklist_t wlist1 = worklist_create();
     worklist_t wlist2 = worklist_create();
@@ -371,6 +374,16 @@ int canMoveOutOfLoop_store(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
          }
        }
 }
+/*if (addr is a constant and there are no stores to addr in L):
+		return true
+	if (addr is an AllocaInst and no stores to addr in L and
+      AllocaInst is not inside the loop):
+		return true
+if (there are no stores to any address in L && addr is not defined inside the loop && I dominates L’s exit):
+	return true
+	else
+return false
+*/
 int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
 {
   worklist_t wlist1 = worklist_create();
@@ -382,13 +395,14 @@ int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
     wlist_exit= LLVMGetExitBlocks(L);
       while(!worklist_empty(wlist_exit))
       {
+		  /*check if the load dominates all the exits*/
         LLVMBasicBlockRef be=LLVMValueAsBasicBlock(worklist_pop(wlist_exit));
         if(!LLVMDominates(LLVMGetBasicBlockParent(LLVMGetInstructionParent(I)),LLVMGetInstructionParent(I),be))
         {
          return 0;
         } 
       }
-      
+      /*check if the address is defined in the loop*/
        if(LLVMLoopContainsInst(L,addr))
          {
          return 0;
@@ -398,6 +412,7 @@ int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
          LLVMBasicBlockRef bb = LLVMValueAsBasicBlock(worklist_pop(wlist1));
          for(J=LLVMGetFirstInstruction(bb);J!=NULL;J=LLVMGetNextInstruction(J))
          {
+			 /*check if there is a call instruction in the loop*/
             if(LLVMIsACallInst(J))
            {
             
@@ -406,6 +421,7 @@ int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
            if(LLVMIsAStoreInst(J))
            {
              LLVMValueRef store_address=LLVMGetOperand(J,1);
+			 /*check if there is a store to same address*/
              if(store_address==addr)
              {
                return 0;
@@ -415,11 +431,13 @@ int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
            }
          }  
        } 
+	   /*check if address is constant*/
         if(LLVMIsAConstant(addr))
              {
              
                return 1;
              }
+			 /*check if the address is an alloca and if it is defined in the loop*/
           if(opcode==LLVMAlloca)
              {
                if(!LLVMLoopContainsInst(L,addr))
@@ -428,6 +446,7 @@ int canMoveOutOfLoop_load(LLVMLoopRef L, LLVMValueRef I, LLVMValueRef addr)
                  return 1;
                }
              }
+			 /*check if there is any store instruction in the loop*/
       while(!worklist_empty(wlist1))
        {
          LLVMBasicBlockRef bb = LLVMValueAsBasicBlock(worklist_pop(wlist1));
